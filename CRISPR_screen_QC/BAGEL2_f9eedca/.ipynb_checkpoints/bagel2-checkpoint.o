@@ -1,0 +1,16 @@
+Current working directory: /lustre/scratch124/casm/team113/users/vo1/4402_synthetic_lethality_of_tsg_in_hipsc
+Validating raw count matrix...
+Validating essential and non-essential genes
+Writing BAGEL version to /lustre/scratch124/casm/team113/users/vo1/4402_synthetic_lethality_of_tsg_in_hipsc/BAGEL2_f9eedca/results/bagel_version.txt
+Getting LFCs for all samples vs plasmid
+Controls: Neo_IRES_plasmid
+Getting gene BFs for WT_vs_plasmid
+Using column:  BOB_screenA, BOB_screenB, BOB_screenC
+Number of unique genes:  18226
+Number of reference essentials: 684
+Number of reference nonessentials: 928
+Iter TrainEss TrainNon TestSet
+0 588 680 1823
+1 597 667 1823
+2 603 678 1823
+3 592 668 1823

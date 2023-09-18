@@ -1,0 +1,3 @@
+Bayesian Analysis of Gene EssentiaLity (BAGEL) suite:
+Version: 2.0
+Build: 114
