@@ -1,0 +1,149 @@
+---
+title: "MicroNuclei File"
+author: "Natasha Karp"
+date: "19/04/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, echo=FALSE, results='hide',message=FALSE, warning=FALSE}
+rm(list=ls())
+library(ggplot2)
+library(plyr)
+library(glmmTMB)
+library(lsmeans)
+
+```
+
+## Exploration of the data
+Visual inspection of hte data finds a significant shift between analyser and evidence of batch to batch variation.
+Visually the variance is not significantly different between the two analysers.
+Fitting a beta regression model to the control data accounting for the effect of analyser as a fixed effect and batch as a random effect delievers residues that are close to normally distributed and shown no significant hetergoeneity over the dynamic range. This indicates this model approach would be appropriate to query the data. 
+
+```{r,message=FALSE, warning=FALSE}
+df1=read.csv("MN_RawData_March2020.csv")
+levels(df1$Experimenter)
+levels(df1$Flow.Cytometer)
+
+GenotypesToTest=levels(df1$Genotype)[-1]
+df1$Prop_MN.NCE=df1$Per_MN.NCE/100
+
+controlData=subset(df1, df1$Genotype=="+/+")
+testData=subset(df1, df1$Genotype!="+/+")
+
+plot1 <- ggplot(data = controlData, mapping = aes_string(y="Per_MN.NCE", x = "Assay.Date", colour = "Flow.Cytometer"))
+plot1<-plot1 + geom_point() +ylab("% Mn.Nce") + xlab("Assay Date")+ theme(axis.text.x = element_text(angle = 90))+ggtitle("Control data with time coloured by instrument")
+plot1
+
+#Does the variance depend on the flow Cytometer? Visually the data suggests not a significant issue.  For the size of effect interested in a minor difference is not a significant issue. 
+#Input of the glmmTMB for beta model is proportion from 0 to 1
+
+
+EqualVar_model <- glmmTMB(Prop_MN.NCE ~ Flow.Cytometer +(1|Assay.Date) ,family=list(family="beta",link="logit"), data = controlData) 
+pred=predict(EqualVar_model)
+res=resid(EqualVar_model)
+data_all= data.frame(controlData, res, pred)
+plot1 <- ggplot(data = data_all, mapping = aes_string(y="res", x = "pred", colour = "Flow.Cytometer"))
+plot1 + geom_point() +ylab("Residual") + xlab("Predicted")
+qqnorm(data_all$res, main=" ")
+qqline(data_all$res)
+```
+
+## Analysis pipeline 1:  beta regression
+
+A mixed linear effect beta regression model exploring the effect on Genotype on the % MN,was conducted using the R package (glmmTMB,  version: 1.0.1).  In detail a regression model was fited with Flow.Cytometer  as a fixed effect to account for the difference arising from the instrumentation whilst assay.date was fitted as a random effect to account for the variance introduced by batch (see Equation 1)
+
+
+Y~ Genotype +Flow.Cytometer+ (1|Batch)    [Eq. 1]  
+	
+The genotype effect and associated error were estimated as a marginal mean using the emmeans (version 1.4.4) package. The significance of the geontype effect was assessed using a likelihood ratio test.  The multiple testing risk was managed by adjusting hte p values to control the false discover rate to 5% using the FDR method or the family wise error rate to 5% using the hochberg method. 
+
+
+
+
+```{r,message=FALSE, warning=FALSE}
+options(width = 500)
+#Wrapper function to assess impact of Genotype
+
+Wrapper_AssessingImpactGenotype<-function(dfControl,dfTest, parameterList){
+  
+  #empty object to colleate results too
+  finalOutput=c()
+
+   for(bob in parameterList){
+     
+     df_genotype=subset(dfTest, dfTest$Genotype==bob)
+     df_combined=rbind(df_genotype,controlData)
+     df_combined$Genotype=factor(df_combined$Genotype)
+     df_combined$Genotype=relevel(df_combined$Genotype, ref="+/+")
+     #print(levels(df_combined$Genotype))
+     
+         tryCatch(
+				{
+				  test_model <- glmmTMB(Prop_MN.NCE ~ Genotype + Flow.Cytometer +(1|Assay.Date) ,family=beta_family(link = "logit"), data = df_combined) 
+				  null_model<- glmmTMB(Prop_MN.NCE ~ Flow.Cytometer +(1|Assay.Date) ,family=beta_family(link = "logit"), data = df_combined) 
+				  TestSig=anova(test_model, null_model)$"Pr(>Chisq)"[2]
+				  test_model_estimate=pairs(emmeans(test_model,  ~ Genotype,     adjust="none"))
+				  marginalmeans=emmeans(test_model,  ~ Genotype,     adjust="none")
+				  
+				  New_output=c(bob, TestSig, summary(test_model_estimate)$SE, -summary(test_model_estimate)$estimate, exp(summary(marginalmeans)$emmean[1]),exp(summary(marginalmeans)$emmean[2]))
+				  names(New_output)=c("Genotype","pvalue", "Estimate_SE", "Estimate", "pred_WT", "pred_KO")
+
+				  finalOutput=rbind(New_output, finalOutput)
+				},                               
+				
+				error=function(e){
+					
+					print(paste(bob, "failure", sep="_"))
+					
+				})    
+		
+   }
+  return(finalOutput)  
+}
+
+#Wrapper_AssessingImpactGenotype(dfControl=controlData,dfTest=testData, parameterList=GenotypesToTest[2])
+#output_acrossGenotypes=Wrapper_AssessingImpactGenotype(dfControl=controlData,dfTest=testData, parameterList=c("Dscc1/Dscc1"))
+
+#output_acrossGenotypes=Wrapper_AssessingImpactGenotype(dfControl=controlData,dfTest=testData, parameterList=c("Dscc1/Dscc1", "Mcph1/Mcph1","Donson/+", "1700011A15Rik/1700011A15Rik", "1190002H23Rik/1190002H23Rik"))
+
+
+Graphing<-function(WTdf,  Testdf, GenotypeInterest){
+  G_data=subset(Testdf, Testdf$Genotype==GenotypeInterest)
+  finalData=rbind(G_data, WTdf)
+ plot1 <- ggplot(data = finalData, mapping = aes_string(y="Per_MN.NCE", x = "Assay.Date", colour="Genotype", shape = "Flow.Cytometer"))
+plot1<-plot1 + geom_point() +ylab("% Mn.Nce") + xlab("Assay Date")+ theme(axis.text.x = element_text(angle = 90))+ggtitle("Control data with time coloured by instrument")
+plot1 
+
+}
+#Graphing(WTdf=controlData,  Testdf=testData, GenotypeInterest="1190002H23Rik/1190002H23Rik")
+#Graphing(WTdf=controlData,  Testdf=testData, GenotypeInterest="Dscc1/Dscc1")
+#Graphing(WTdf=controlData,  Testdf=testData, GenotypeInterest="Mcph1/Mcph1")
+
+
+output_acrossGenotypes=Wrapper_AssessingImpactGenotype(dfControl=controlData,dfTest=testData, parameterList=GenotypesToTest)
+setwd("C:\\Users\\KPPQ436\\Box Sync\\Quantitative Biology\\Stats_team_repo\\Natasha_Karp\\collaborations\\Gabriel Balmus\\MicronucleiAnalysis")
+write.csv(output_acrossGenotypes, "outputAnalysis.csv")
+output_acrossGenotypes=read.csv("outputAnalysis.csv")
+output_acrossGenotypes$pval_adjust_fdr=p.adjust(output_acrossGenotypes$pvalue, method="fdr")
+output_acrossGenotypes$pval_adjust_hochberg=p.adjust(output_acrossGenotypes$pvalue, method="hochberg")
+
+nrow(output_acrossGenotypes[output_acrossGenotypes$pval_adjust_fdr<=0.05,]) #110
+nrow(output_acrossGenotypes[output_acrossGenotypes$pval_adjust_hochberg<=0.05,]) #24
+
+ggplot(output_acrossGenotypes, aes(x=pvalue)) + geom_histogram()
+
+output_acrossGenotypes$direction=ifelse(output_acrossGenotypes$pval_adjust_fdr<=0.05, ifelse(output_acrossGenotypes$pred_WT>output_acrossGenotypes$pred_KO, "less", "more"),"not Sig")
+output_acrossGenotypes$ES=output_acrossGenotypes$pred_KO-output_acrossGenotypes$pred_WT
+
+sig_hochberg=subset(output_acrossGenotypes, output_acrossGenotypes$pval_adjust_hochberg<=0.05)
+sig_hochberg
+
+
+write.csv(output_acrossGenotypes, "output_Analysisv2.csv")
+
+```
